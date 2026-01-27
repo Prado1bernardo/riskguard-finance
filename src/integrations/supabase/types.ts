@@ -19,6 +19,7 @@ export type Database = {
           amount: number
           cancelability_score: number | null
           cancellation_fee_pct: number | null
+          computed_at: string | null
           computed_rigidity: string | null
           contract_months_remaining: number | null
           created_at: string
@@ -40,6 +41,7 @@ export type Database = {
           amount?: number
           cancelability_score?: number | null
           cancellation_fee_pct?: number | null
+          computed_at?: string | null
           computed_rigidity?: string | null
           contract_months_remaining?: number | null
           created_at?: string
@@ -61,6 +63,7 @@ export type Database = {
           amount?: number
           cancelability_score?: number | null
           cancellation_fee_pct?: number | null
+          computed_at?: string | null
           computed_rigidity?: string | null
           contract_months_remaining?: number | null
           created_at?: string

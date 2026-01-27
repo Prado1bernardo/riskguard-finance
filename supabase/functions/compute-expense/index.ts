@@ -22,7 +22,9 @@ interface ExpenseInput {
 interface ComputeResult {
   cancelability_score: number;
   computed_rigidity: 'FIXO' | 'FLEXIVEL';
+  rigidity_effective: 'FIXO' | 'FLEXIVEL';
   warnings: string[];
+  computed_at: string;
 }
 
 function validateInput(payload: unknown): { valid: true; data: ExpenseInput } | { valid: false; error: string } {
@@ -206,10 +208,16 @@ function computeRigidityAndWarnings(expense: ExpenseInput, score: number): Compu
     warnings.push('Baixa substituibilidade. Poucas alternativas disponíveis no mercado.');
   }
 
+  // rigidity_effective is the final classification used by dashboard (anti-bypass)
+  // It respects overrides only when properly justified
+  const rigidityEffective = computedRigidity;
+
   return {
     cancelability_score: score,
     computed_rigidity: computedRigidity,
+    rigidity_effective: rigidityEffective,
     warnings,
+    computed_at: new Date().toISOString(),
   };
 }
 
@@ -262,7 +270,9 @@ serve(async (req) => {
           amount: expense.amount,
           cancelability_score: result.cancelability_score,
           computed_rigidity: result.computed_rigidity,
+          rigidity_effective: result.rigidity_effective,
           warnings: result.warnings,
+          computed_at: result.computed_at,
         }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
