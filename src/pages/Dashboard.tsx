@@ -1,11 +1,13 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
 import { useExpenses } from '@/hooks/useExpenses';
+import { useMonthSummary } from '@/hooks/useMonthSummary';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
-import { LogOut, AlertTriangle, TrendingDown, Shield } from 'lucide-react';
+import { RiskGauge } from '@/components/RiskGauge';
+import { RiskCard } from '@/components/RiskCard';
+import { LogOut, AlertTriangle, Shield, TrendingUp, Wallet, PiggyBank, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 
 const INTENTION_COLORS: Record<string, string> = {
@@ -27,19 +29,13 @@ const INTENTION_LABELS: Record<string, string> = {
 const Dashboard = () => {
   const { signOut } = useAuth();
   const { profile, isLoading: profileLoading } = useProfile();
-  const { expenses, totalsByIntention, totalExpenses, isLoading: expensesLoading } = useExpenses();
+  const { expenses, totalsByIntention, isLoading: expensesLoading } = useExpenses();
+  const { summary, isLoading: summaryLoading } = useMonthSummary();
 
-  const isLoading = profileLoading || expensesLoading;
+  const isLoading = profileLoading || expensesLoading || summaryLoading;
 
-  // Calculate risk metrics
-  const incomeFloor = profile?.income_floor ?? 0;
-  const essentialExpenses = totalsByIntention['ESSENCIAL'] ?? 0;
-  const essentialRatio = incomeFloor > 0 ? (essentialExpenses / incomeFloor) * 100 : 0;
-  const totalRatio = incomeFloor > 0 ? (totalExpenses / incomeFloor) * 100 : 0;
-
-  // Emergency reserve coverage (months)
-  const emergencyReserve = profile?.emergency_reserve ?? 0;
-  const reserveCoverage = totalExpenses > 0 ? emergencyReserve / totalExpenses : 0;
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
   // Prepare chart data
   const chartData = Object.entries(totalsByIntention)
@@ -50,60 +46,24 @@ const Dashboard = () => {
       color: INTENTION_COLORS[intention] || 'hsl(0, 0%, 50%)',
     }));
 
-  // Risk alerts
-  const alerts: { type: 'warning' | 'danger'; message: string }[] = [];
-  
-  if (essentialRatio > 50) {
-    alerts.push({
-      type: 'danger',
-      message: `Despesas essenciais consomem ${essentialRatio.toFixed(0)}% da renda mínima. Risco alto de insolvência.`,
-    });
-  } else if (essentialRatio > 30) {
-    alerts.push({
-      type: 'warning',
-      message: `Despesas essenciais representam ${essentialRatio.toFixed(0)}% da renda. Atenção recomendada.`,
-    });
-  }
-
-  if (totalRatio > 80) {
-    alerts.push({
-      type: 'danger',
-      message: `Total de despesas consome ${totalRatio.toFixed(0)}% da renda. Margem muito baixa.`,
-    });
-  }
-
-  if (reserveCoverage < 3 && totalExpenses > 0) {
-    alerts.push({
-      type: 'warning',
-      message: `Reserva de emergência cobre apenas ${reserveCoverage.toFixed(1)} meses de despesas.`,
-    });
-  }
-
-  // High rigidity expenses
-  const highRigidityExpenses = expenses.filter(e => (e.cancelability_score ?? 100) < 40);
-  if (highRigidityExpenses.length > 0) {
-    alerts.push({
-      type: 'warning',
-      message: `${highRigidityExpenses.length} despesa(s) com alta rigidez contratual.`,
-    });
-  }
-
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-muted-foreground">Carregando...</div>
+        <div className="text-muted-foreground">Carregando análise de risco...</div>
       </div>
     );
   }
 
-  const formatCurrency = (value: number) => 
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  const hasProfile = profile?.income_floor && profile.income_floor > 0;
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto flex items-center justify-between p-4">
-          <h1 className="text-xl font-semibold">Análise de Risco</h1>
+          <div>
+            <h1 className="text-xl font-semibold">Análise de Risco</h1>
+            <p className="text-sm text-muted-foreground">Medidor de saúde financeira</p>
+          </div>
           <Button variant="ghost" size="sm" onClick={signOut}>
             <LogOut className="mr-2 h-4 w-4" />
             Sair
@@ -112,67 +72,159 @@ const Dashboard = () => {
       </header>
 
       <main className="container mx-auto space-y-6 p-4">
-        {/* Alerts Section */}
-        {alerts.length > 0 && (
-          <div className="space-y-3">
-            {alerts.map((alert, index) => (
-              <Alert key={index} variant={alert.type === 'danger' ? 'destructive' : 'default'}>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>{alert.type === 'danger' ? 'Alerta Crítico' : 'Atenção'}</AlertTitle>
-                <AlertDescription>{alert.message}</AlertDescription>
-              </Alert>
-            ))}
+        {/* Profile Setup Notice */}
+        {!hasProfile && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Configure seu perfil</AlertTitle>
+            <AlertDescription>
+              Para uma análise precisa de risco, configure sua renda mínima, reserva de emergência e outras informações financeiras.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Risk Warnings */}
+        {summary && summary.warnings.length > 0 && (
+          <div className="space-y-2">
+            {summary.warnings.map((warning, index) => {
+              const isVermelho = warning.includes('VERMELHA') || warning.includes('Crítico') || warning.includes('DSCR abaixo');
+              return (
+                <Alert key={index} variant={isVermelho ? 'destructive' : 'default'}>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{warning}</AlertDescription>
+                </Alert>
+              );
+            })}
           </div>
         )}
 
-        {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-3">
+        {/* Main Risk Gauge */}
+        {summary && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <RiskGauge
+              value={summary.fixed_pct}
+              maxValue={60}
+              zone={summary.fixed_zone}
+              label="Custos Fixos / Renda"
+              suffix="%"
+              showThresholds
+            />
+            <Card className="flex flex-col justify-center">
+              <CardHeader className="pb-2">
+                <CardDescription>Avaliação Geral de Risco</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  {summary.overall_risk.label}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2 flex-wrap">
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    summary.overall_risk.status === 'OK' ? 'bg-emerald-100 text-emerald-700' :
+                    summary.overall_risk.status === 'AMARELO' ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {summary.overall_risk.status}
+                  </span>
+                  {summary.above_adaptive_limit && (
+                    <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-700">
+                      Acima do limite ({summary.adaptive_limit_pct}%)
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Key Metrics Grid */}
+        {summary && (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <RiskCard
+              title="Renda Mínima"
+              value={formatCurrency(summary.income_floor)}
+              subtitle="Base para cálculos"
+              icon={<Wallet className="h-5 w-5 text-muted-foreground" />}
+            />
+            <RiskCard
+              title="Índice de Rigidez"
+              value={`${(summary.rigidity_index * 100).toFixed(1)}%`}
+              subtitle="(Fixo + Dívida) / Renda"
+              zone={summary.rigidity_index >= 0.6 
+                ? { status: 'VERMELHO', label: 'Alto' }
+                : summary.rigidity_index >= 0.45 
+                  ? { status: 'AMARELO', label: 'Médio' }
+                  : { status: 'OK', label: 'Baixo' }
+              }
+            />
+            <RiskCard
+              title="DSCR"
+              value={summary.dscr !== null ? summary.dscr.toFixed(2) : '—'}
+              subtitle={summary.dscr_status}
+              zone={summary.dscr === null 
+                ? undefined 
+                : summary.dscr < 1 
+                  ? { status: 'VERMELHO', label: 'Crítico' }
+                  : summary.dscr < 1.5 
+                    ? { status: 'AMARELO', label: 'Apertado' }
+                    : { status: 'OK', label: 'Saudável' }
+              }
+              icon={<TrendingUp className="h-5 w-5 text-muted-foreground" />}
+            />
+            <RiskCard
+              title="Runway"
+              value={summary.runway_months !== null ? `${summary.runway_months.toFixed(1)} meses` : '—'}
+              subtitle="Reserva / Custos fixos"
+              zone={summary.runway_months === null 
+                ? undefined
+                : summary.runway_months < 3 
+                  ? { status: 'VERMELHO', label: 'Crítico' }
+                  : summary.runway_months < 6 
+                    ? { status: 'AMARELO', label: 'Baixo' }
+                    : { status: 'OK', label: 'Saudável' }
+              }
+              icon={<PiggyBank className="h-5 w-5 text-muted-foreground" />}
+            />
+          </div>
+        )}
+
+        {/* Fixed vs Flexible Breakdown */}
+        {summary && (
           <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Renda Mínima</CardDescription>
-              <CardTitle className="text-2xl">{formatCurrency(incomeFloor)}</CardTitle>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Composição dos Custos
+              </CardTitle>
+              <CardDescription>Distribuição entre fixos e flexíveis</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <TrendingDown className="mr-1 h-4 w-4" />
-                Base para cálculo de risco
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="text-center p-4 rounded-lg bg-muted/50">
+                  <p className="text-sm text-muted-foreground">Total de Despesas</p>
+                  <p className="text-2xl font-bold">{formatCurrency(summary.total_expenses)}</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-red-50 border border-red-200">
+                  <p className="text-sm text-red-600">Custos Fixos</p>
+                  <p className="text-2xl font-bold text-red-700">{formatCurrency(summary.fixed_total)}</p>
+                  <p className="text-xs text-red-500">{summary.fixed_pct.toFixed(1)}% da renda</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <p className="text-sm text-emerald-600">Custos Flexíveis</p>
+                  <p className="text-2xl font-bold text-emerald-700">{formatCurrency(summary.flexible_total)}</p>
+                  <p className="text-xs text-emerald-500">Mais fáceis de ajustar</p>
+                </div>
               </div>
             </CardContent>
           </Card>
+        )}
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Total de Despesas</CardDescription>
-              <CardTitle className="text-2xl">{formatCurrency(totalExpenses)}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Progress value={Math.min(totalRatio, 100)} className="h-2" />
-              <p className="mt-1 text-sm text-muted-foreground">
-                {totalRatio.toFixed(0)}% da renda
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Reserva de Emergência</CardDescription>
-              <CardTitle className="text-2xl">{formatCurrency(emergencyReserve)}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <Shield className="mr-1 h-4 w-4" />
-                {reserveCoverage.toFixed(1)} meses de cobertura
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Chart Section */}
+        {/* Distribution Chart */}
         {chartData.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Distribuição por Intenção</CardTitle>
-              <CardDescription>Como suas despesas estão distribuídas</CardDescription>
+              <CardDescription>Visualização por categoria de gasto</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="h-64">
@@ -185,7 +237,7 @@ const Dashboard = () => {
                       cx="50%"
                       cy="50%"
                       outerRadius={80}
-                      label={({ name, percent }) => 
+                      label={({ name, percent }) =>
                         `${name} (${(percent * 100).toFixed(0)}%)`
                       }
                     >
@@ -193,9 +245,7 @@ const Dashboard = () => {
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => formatCurrency(value)}
-                    />
+                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
@@ -207,8 +257,8 @@ const Dashboard = () => {
         {/* Expenses List */}
         <Card>
           <CardHeader>
-            <CardTitle>Suas Despesas ({expenses.length})</CardTitle>
-            <CardDescription>Lista de todos os custos registrados</CardDescription>
+            <CardTitle>Despesas Registradas ({expenses.length})</CardTitle>
+            <CardDescription>Lista com score de cancelabilidade e rigidez</CardDescription>
           </CardHeader>
           <CardContent>
             {expenses.length === 0 ? (
@@ -217,32 +267,45 @@ const Dashboard = () => {
               </p>
             ) : (
               <div className="space-y-3">
-                {expenses.map((expense) => (
-                  <div
-                    key={expense.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div>
-                      <p className="font-medium">{expense.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {INTENTION_LABELS[expense.intention]} • {expense.recurrence}
-                      </p>
+                {expenses.map((expense) => {
+                  const score = expense.cancelability_score ?? 0;
+                  const isFixed = expense.computed_rigidity === 'FIXO' || score < 55;
+                  return (
+                    <div
+                      key={expense.id}
+                      className={`flex items-center justify-between rounded-lg border p-3 ${
+                        isFixed ? 'border-red-200 bg-red-50/50' : 'border-emerald-200 bg-emerald-50/50'
+                      }`}
+                    >
+                      <div>
+                        <p className="font-medium">{expense.name}</p>
+                        <div className="flex gap-2 mt-1">
+                          <span className="text-xs px-2 py-0.5 rounded bg-muted">
+                            {INTENTION_LABELS[expense.intention]}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            isFixed ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            {isFixed ? 'FIXO' : 'FLEXÍVEL'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold">{formatCurrency(expense.amount)}</p>
+                        <p className={`text-xs ${score < 40 ? 'text-red-600' : score < 55 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          Score: {score}/100
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold">{formatCurrency(expense.amount)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Score: {expense.cancelability_score ?? 0}/100
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
         </Card>
 
         {/* Quick Setup Notice */}
-        {(!profile?.income_floor || profile.income_floor === 0) && (
+        {!hasProfile && (
           <Card className="border-dashed">
             <CardContent className="py-6 text-center">
               <p className="text-muted-foreground">
