@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RiskGauge } from '@/components/RiskGauge';
 import { RiskCard } from '@/components/RiskCard';
+import { IncomeDropSimulation, FirstMillionProjection } from '@/components/SimulationCards';
 import { LogOut, AlertTriangle, Shield, TrendingUp, Wallet, PiggyBank, Activity, Plus, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
@@ -319,7 +320,11 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* Expenses List */}
+        {/* Simulations */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <IncomeDropSimulation />
+          <FirstMillionProjection />
+        </div>
         <Card>
           <CardHeader>
             <CardTitle>Despesas Registradas ({expenses.length})</CardTitle>
