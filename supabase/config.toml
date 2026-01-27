@@ -1,1 +1,4 @@
 project_id = "ssozotdotbdiruyoncpl"
+
+[functions.compute-expense]
+verify_jwt = false
