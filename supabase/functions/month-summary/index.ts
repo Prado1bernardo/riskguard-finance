@@ -33,6 +33,7 @@ interface TopFixedExpense {
   name: string;
   amount: number;
   cancelability_score: number | null;
+  impact_pct: number | null;
 }
 
 interface MonthSummary {
@@ -216,6 +217,11 @@ serve(async (req) => {
     const expenseList: ExpenseData[] = expenses ?? [];
     const warnings: string[] = [];
 
+    // Extract profile values early for use in loop
+    const incomeFloor = profileData.income_floor;
+    const debtService = profileData.debt_service;
+    const emergencyReserve = profileData.emergency_reserve;
+
     // Calculate totals
     let totalExpenses = 0;
     let fixedTotal = 0;
@@ -226,18 +232,34 @@ serve(async (req) => {
     // Track fixed expenses for top 5
     const fixedExpensesList: TopFixedExpense[] = [];
 
+    // Anti-drible: track unclassified and no-score expenses
+    let unclassifiedCount = 0;
+    let noScoreCount = 0;
+
     const byIntention: Record<string, { total: number; fixed: number; flexible: number }> = {};
 
     for (const expense of expenseList) {
       const amount = expense.amount ?? 0;
       totalExpenses += amount;
 
-      // Use rigidity_effective (computed_rigidity is already the effective value from Edge Function)
+      // Anti-drible: if computed_rigidity is null, DO NOT infer from cancelability_score
+      // Treat as FIXO for safety (meter should "fight" the user)
       let isFixed = false;
-      if (expense.computed_rigidity) {
+      let isUnclassified = false;
+      
+      if (expense.computed_rigidity !== null && expense.computed_rigidity !== undefined) {
+        // Has classification - use it
         isFixed = expense.computed_rigidity === 'FIXO';
-      } else if (expense.cancelability_score !== null) {
-        isFixed = expense.cancelability_score < 55;
+      } else {
+        // No classification - mark as unclassified and treat as FIXO for safety
+        isUnclassified = true;
+        unclassifiedCount++;
+        isFixed = true; // Conservative: treat unclassified as FIXO
+      }
+
+      // Track expenses without score separately
+      if (expense.cancelability_score === null || expense.cancelability_score === undefined) {
+        noScoreCount++;
       }
 
       if (isFixed) {
@@ -247,12 +269,13 @@ serve(async (req) => {
           name: expense.name,
           amount: amount,
           cancelability_score: expense.cancelability_score,
+          impact_pct: incomeFloor > 0 ? Math.round((amount / incomeFloor) * 1000) / 10 : null,
         });
       } else {
         flexibleTotal += amount;
       }
 
-      // Track essentials
+      // Track essentials - only count as fixed essential if classified as FIXO
       if (expense.intention === 'ESSENCIAL') {
         essentialsTotal += amount;
         if (isFixed) {
@@ -272,14 +295,18 @@ serve(async (req) => {
       }
     }
 
-    // Sort and get top 5 fixed expenses by amount
+    // Anti-drible warnings
+    if (unclassifiedCount > 0) {
+      warnings.push(`${unclassifiedCount} despesa(s) sem classificação calculada - tratadas como FIXO por segurança.`);
+    }
+    if (noScoreCount > 0) {
+      warnings.push(`${noScoreCount} despesa(s) sem score de cancelabilidade.`);
+    }
+
+    // Sort and get top 5 fixed expenses by amount (impact_pct already calculated in loop)
     const topFixedExpenses = fixedExpensesList
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 5);
-
-    const incomeFloor = profileData.income_floor;
-    const debtService = profileData.debt_service;
-    const emergencyReserve = profileData.emergency_reserve;
 
     // Fixed percentage
     const fixedPct = incomeFloor > 0 ? (fixedTotal / incomeFloor) * 100 : 0;
@@ -306,12 +333,23 @@ serve(async (req) => {
       }
     }
 
-    // Runway = emergency_reserve / (fixed + essential)
-    // Using fixed expenses that are essential
-    const fixedEssentialBase = fixedTotal > 0 ? fixedTotal : essentialsTotal;
-    const runwayMonths = fixedEssentialBase > 0 
-      ? emergencyReserve / fixedEssentialBase 
+    // Runway = emergency_reserve / fixed_essential_total (ESSENCIAL + FIXO only)
+    // Fallback to essentials_total if fixed_essential_total is 0
+    let runwayBase = fixedEssentialTotal;
+    let usedRunwayFallback = false;
+    
+    if (fixedEssentialTotal === 0 && essentialsTotal > 0) {
+      runwayBase = essentialsTotal;
+      usedRunwayFallback = true;
+    }
+    
+    const runwayMonths = runwayBase > 0 
+      ? emergencyReserve / runwayBase 
       : null;
+
+    if (usedRunwayFallback) {
+      warnings.push('Runway calculado com fallback (total essenciais) - nenhuma despesa essencial classificada como FIXO.');
+    }
 
     if (runwayMonths !== null && runwayMonths < 3) {
       warnings.push(`Reserva de emergência cobre apenas ${runwayMonths.toFixed(1)} meses. Recomendado: mínimo 6 meses.`);
@@ -336,8 +374,9 @@ serve(async (req) => {
 
     const overallRisk = calculateOverallRisk(fixedPct, rigidityIndex, dscr, runwayMonths, aboveAdaptiveLimit);
 
-    // High rigidity expenses warning
-    const highRigidityCount = expenseList.filter(e => (e.cancelability_score ?? 100) < 40).length;
+    // High rigidity expenses warning - only count expenses WITH a score
+    const expensesWithScore = expenseList.filter(e => e.cancelability_score !== null && e.cancelability_score !== undefined);
+    const highRigidityCount = expensesWithScore.filter(e => e.cancelability_score! < 40).length;
     if (highRigidityCount > 0) {
       warnings.push(`${highRigidityCount} despesa(s) com baixo score de cancelabilidade (<40).`);
     }

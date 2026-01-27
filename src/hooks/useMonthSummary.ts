@@ -12,6 +12,7 @@ export interface TopFixedExpense {
   name: string;
   amount: number;
   cancelability_score: number | null;
+  impact_pct: number | null;
 }
 
 export interface MonthSummary {
