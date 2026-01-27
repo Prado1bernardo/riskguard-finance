@@ -142,75 +142,118 @@ function calculateCancelabilityScore(expense: ExpenseInput): number {
     score -= Math.min(10, noticeDays / 3);
   }
 
-  return Math.max(0, Math.min(100, Math.round(score)));
+  // Calculate base score before caps
+  let baseScore = Math.max(0, Math.min(100, Math.round(score)));
+
+  // Apply hard caps based on hard signals (anti-drible)
+  // Cap at 50 if has legal link
+  if (expense.has_legal_link) {
+    baseScore = Math.min(baseScore, 50);
+  }
+
+  // Cap at 60 if has active contract
+  if (contractMonths > 0) {
+    baseScore = Math.min(baseScore, 60);
+  }
+
+  return baseScore;
+}
+
+// Check for hard signals that indicate high rigidity
+function hasHardSignals(expense: ExpenseInput): boolean {
+  return (
+    expense.has_legal_link === true ||
+    (expense.contract_months_remaining ?? 0) > 0 ||
+    expense.essential_obligation === true ||
+    (expense.notice_days ?? 0) >= 30
+  );
+}
+
+// Check for the strongest hard signals (legal/contract)
+function hasStrongHardSignals(expense: ExpenseInput): boolean {
+  return (
+    expense.has_legal_link === true ||
+    (expense.contract_months_remaining ?? 0) > 0
+  );
 }
 
 function computeRigidityAndWarnings(expense: ExpenseInput, score: number): ComputeResult {
   const warnings: string[] = [];
   
-  // Determine base rigidity from score
-  let computedRigidity: 'FIXO' | 'FLEXIVEL' = score < 55 ? 'FIXO' : 'FLEXIVEL';
+  const hardSignalsPresent = hasHardSignals(expense);
+  const strongSignalsPresent = hasStrongHardSignals(expense);
 
-  // Hard signals check
-  const hasHardSignals = 
-    expense.has_legal_link || 
-    (expense.contract_months_remaining ?? 0) > 0 || 
-    expense.essential_obligation;
+  // ================================================================
+  // STEP 1: Calculate computed_rigidity (system's classification, no override)
+  // ================================================================
+  let computedRigidity: 'FIXO' | 'FLEXIVEL';
 
-  // If has hard signals but score suggests FLEXIVEL, add warning about conflict
-  if (hasHardSignals && score >= 55) {
-    warnings.push('Score alto mas possui sinais de rigidez (vínculo legal, contrato ativo ou obrigação essencial). Avalie com cautela.');
-    // Force to FIXO if hard signals present and score is borderline (55-70)
-    if (score < 70) {
+  if (hardSignalsPresent) {
+    // With hard signals, default to FIXO
+    // Exception: if score is very high (>=90) AND no strong signals (legal/contract)
+    if (score >= 90 && !strongSignalsPresent) {
+      computedRigidity = 'FLEXIVEL';
+      warnings.push('Score muito alto (>=90) sem vínculo legal ou contrato ativo. Sistema classificou como FLEXIVEL mesmo com sinais moderados.');
+    } else {
       computedRigidity = 'FIXO';
-      warnings.push('Rigidez ajustada para FIXO devido a sinais de rigidez presentes.');
     }
+  } else {
+    // No hard signals: use score threshold
+    computedRigidity = score < 55 ? 'FIXO' : 'FLEXIVEL';
   }
 
-  // Handle override
+  // ================================================================
+  // STEP 2: Calculate rigidity_effective (with override logic)
+  // ================================================================
+  let rigidityEffective: 'FIXO' | 'FLEXIVEL' = computedRigidity;
+
   if (expense.override_rigidity) {
     const overrideReason = expense.override_reason?.trim() ?? '';
-    
+
     if (expense.override_rigidity === 'FLEXIVEL') {
-      // Validate override_reason length
+      // Validate override_reason length (min 8 chars)
       if (overrideReason.length < 8) {
-        warnings.push('Override para FLEXIVEL requer justificativa com pelo menos 8 caracteres.');
+        warnings.push('Override para FLEXIVEL requer justificativa com pelo menos 8 caracteres. Override ignorado.');
+        // Keep rigidityEffective as computedRigidity (override not applied)
+      } else if (hardSignalsPresent) {
+        // Hard signals present: override FLEXIVEL cannot reduce rigidity (anti-drible)
+        rigidityEffective = 'FIXO'; // Force FIXO regardless of override
+        warnings.push('Override não reduz risco por sinais fortes (vínculo legal, contrato ativo, obrigação essencial ou aviso >= 30 dias).');
       } else {
-        // Check if override is not recommended
-        const hasRiskyConditions = 
-          (expense.notice_days ?? 0) >= 30 || 
-          (expense.contract_months_remaining ?? 0) > 0 || 
-          expense.has_legal_link;
-
-        if (hasRiskyConditions) {
-          warnings.push('Override não recomendado: existem condições de risco (aviso prévio >= 30 dias, contrato ativo ou vínculo legal).');
-        }
-
-        // Apply override only if reason is valid
-        computedRigidity = 'FLEXIVEL';
+        // No hard signals and valid reason: apply override
+        rigidityEffective = 'FLEXIVEL';
       }
     } else if (expense.override_rigidity === 'FIXO') {
-      // FIXO override is always safe
-      computedRigidity = 'FIXO';
+      // FIXO override always allowed (can only increase safety)
+      rigidityEffective = 'FIXO';
     }
   }
 
-  // Additional warnings for specific conditions
+  // ================================================================
+  // STEP 3: Additional contextual warnings (non-duplicated)
+  // ================================================================
+  
+  // High cancellation fee warning
   if ((expense.cancellation_fee_pct ?? 0) >= 50) {
     warnings.push('Multa de cancelamento elevada (>= 50%). Considere aguardar término do contrato.');
   }
 
+  // Long-term contract warning
   if ((expense.contract_months_remaining ?? 0) >= 12) {
     warnings.push('Contrato de longo prazo (>= 12 meses restantes). Difícil cancelamento a curto prazo.');
   }
 
+  // Low substitutability warning
   if ((expense.substitutability ?? 5) <= 2) {
     warnings.push('Baixa substituibilidade. Poucas alternativas disponíveis no mercado.');
   }
 
-  // rigidity_effective is the final classification used by dashboard (anti-bypass)
-  // It respects overrides only when properly justified
-  const rigidityEffective = computedRigidity;
+  // Score cap notifications (informational, not conflicting with hard signal warnings)
+  if (expense.has_legal_link && score === 50) {
+    warnings.push('Score limitado a 50 devido a vínculo legal.');
+  } else if ((expense.contract_months_remaining ?? 0) > 0 && score === 60 && !expense.has_legal_link) {
+    warnings.push('Score limitado a 60 devido a contrato ativo.');
+  }
 
   return {
     cancelability_score: score,
