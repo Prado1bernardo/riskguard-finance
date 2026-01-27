@@ -7,6 +7,13 @@ interface RiskZone {
   label: string;
 }
 
+export interface TopFixedExpense {
+  id: string;
+  name: string;
+  amount: number;
+  cancelability_score: number | null;
+}
+
 export interface MonthSummary {
   income_floor: number;
   total_expenses: number;
@@ -22,6 +29,8 @@ export interface MonthSummary {
   fixed_zone: RiskZone;
   overall_risk: RiskZone;
   by_intention: Record<string, { total: number; fixed: number; flexible: number }>;
+  top_fixed_expenses: TopFixedExpense[];
+  fixed_growth_warnings: string[];
   warnings: string[];
 }
 

@@ -15,6 +15,8 @@ interface ProfileData {
 }
 
 interface ExpenseData {
+  id: string;
+  name: string;
   amount: number;
   intention: string;
   computed_rigidity: string | null;
@@ -24,6 +26,13 @@ interface ExpenseData {
 interface RiskZone {
   status: 'OK' | 'AMARELO' | 'VERMELHO';
   label: string;
+}
+
+interface TopFixedExpense {
+  id: string;
+  name: string;
+  amount: number;
+  cancelability_score: number | null;
 }
 
 interface MonthSummary {
@@ -50,6 +59,12 @@ interface MonthSummary {
   
   // Breakdown by intention
   by_intention: Record<string, { total: number; fixed: number; flexible: number }>;
+  
+  // Top fixed expenses (actionable insights)
+  top_fixed_expenses: TopFixedExpense[];
+  
+  // Growth warnings
+  fixed_growth_warnings: string[];
   
   // Warnings
   warnings: string[];
@@ -176,10 +191,10 @@ serve(async (req) => {
       );
     }
 
-    // Fetch expenses
+    // Fetch expenses with name and id for top fixed
     const { data: expenses, error: expensesError } = await supabase
       .from('expenses')
-      .select('amount, intention, computed_rigidity, cancelability_score')
+      .select('id, name, amount, intention, computed_rigidity, cancelability_score')
       .eq('user_id', userId);
 
     if (expensesError) {
@@ -207,6 +222,9 @@ serve(async (req) => {
     let flexibleTotal = 0;
     let essentialsTotal = 0;
     let fixedEssentialTotal = 0;
+    
+    // Track fixed expenses for top 5
+    const fixedExpensesList: TopFixedExpense[] = [];
 
     const byIntention: Record<string, { total: number; fixed: number; flexible: number }> = {};
 
@@ -214,8 +232,7 @@ serve(async (req) => {
       const amount = expense.amount ?? 0;
       totalExpenses += amount;
 
-      // Determine effective rigidity
-      // If computed_rigidity is null, use cancelability_score to determine
+      // Use rigidity_effective (computed_rigidity is already the effective value from Edge Function)
       let isFixed = false;
       if (expense.computed_rigidity) {
         isFixed = expense.computed_rigidity === 'FIXO';
@@ -225,6 +242,12 @@ serve(async (req) => {
 
       if (isFixed) {
         fixedTotal += amount;
+        fixedExpensesList.push({
+          id: expense.id,
+          name: expense.name,
+          amount: amount,
+          cancelability_score: expense.cancelability_score,
+        });
       } else {
         flexibleTotal += amount;
       }
@@ -248,6 +271,11 @@ serve(async (req) => {
         byIntention[expense.intention].flexible += amount;
       }
     }
+
+    // Sort and get top 5 fixed expenses by amount
+    const topFixedExpenses = fixedExpensesList
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
 
     const incomeFloor = profileData.income_floor;
     const debtService = profileData.debt_service;
@@ -314,6 +342,18 @@ serve(async (req) => {
       warnings.push(`${highRigidityCount} despesa(s) com baixo score de cancelabilidade (<40).`);
     }
 
+    // Fixed growth warnings (threshold crossings)
+    const fixedGrowthWarnings: string[] = [];
+    if (fixedPct >= 40) {
+      fixedGrowthWarnings.push('ALERTA: Custos fixos cruzaram 40% da renda - zona de risco crítico.');
+    } else if (fixedPct >= 30) {
+      fixedGrowthWarnings.push('ATENÇÃO: Custos fixos cruzaram 30% da renda - zona de atenção.');
+    }
+    
+    if (topFixedExpenses.length > 0 && topFixedExpenses[0].amount > incomeFloor * 0.15) {
+      fixedGrowthWarnings.push(`Maior despesa fixa (${topFixedExpenses[0].name}) representa mais de 15% da renda.`);
+    }
+
     const summary: MonthSummary = {
       income_floor: incomeFloor,
       total_expenses: totalExpenses,
@@ -329,6 +369,8 @@ serve(async (req) => {
       fixed_zone: fixedZone,
       overall_risk: overallRisk,
       by_intention: byIntention,
+      top_fixed_expenses: topFixedExpenses,
+      fixed_growth_warnings: fixedGrowthWarnings,
       warnings,
     };
 
