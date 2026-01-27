@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.month-summary]
 verify_jwt = false
+
+[functions.simulate-drop-income]
+verify_jwt = false
+
+[functions.projection-first-million]
+verify_jwt = false
