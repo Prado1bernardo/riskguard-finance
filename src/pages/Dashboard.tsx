@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RiskGauge } from '@/components/RiskGauge';
 import { RiskCard } from '@/components/RiskCard';
-import { LogOut, AlertTriangle, Shield, TrendingUp, Wallet, PiggyBank, Activity } from 'lucide-react';
+import { LogOut, AlertTriangle, Shield, TrendingUp, Wallet, PiggyBank, Activity, Plus, Lock } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 
 const INTENTION_COLORS: Record<string, string> = {
@@ -64,10 +65,18 @@ const Dashboard = () => {
             <h1 className="text-xl font-semibold">Análise de Risco</h1>
             <p className="text-sm text-muted-foreground">Medidor de saúde financeira</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={signOut}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Sair
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link to="/expenses">
+              <Button variant="outline" size="sm">
+                <Plus className="mr-2 h-4 w-4" />
+                Despesas
+              </Button>
+            </Link>
+            <Button variant="ghost" size="sm" onClick={signOut}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Sair
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -214,6 +223,62 @@ const Dashboard = () => {
                   <p className="text-2xl font-bold text-emerald-700">{formatCurrency(summary.flexible_total)}</p>
                   <p className="text-xs text-emerald-500">Mais fáceis de ajustar</p>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Fixed Growth Warnings */}
+        {summary && summary.fixed_growth_warnings && summary.fixed_growth_warnings.length > 0 && (
+          <div className="space-y-2">
+            {summary.fixed_growth_warnings.map((warning, index) => (
+              <Alert key={index} variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="font-medium">{warning}</AlertDescription>
+              </Alert>
+            ))}
+          </div>
+        )}
+
+        {/* Top Fixed Expenses */}
+        {summary && summary.top_fixed_expenses && summary.top_fixed_expenses.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Lock className="h-5 w-5" />
+                Top 5 Custos Fixos
+              </CardTitle>
+              <CardDescription>Maiores despesas fixas - foco para redução de risco</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {summary.top_fixed_expenses.map((expense, idx) => (
+                  <div
+                    key={expense.id}
+                    className="flex items-center justify-between p-3 rounded-lg border border-red-200 bg-red-50/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex items-center justify-center w-6 h-6 rounded-full bg-red-100 text-red-700 text-sm font-bold">
+                        {idx + 1}
+                      </span>
+                      <span className="font-medium">{expense.name}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold">{formatCurrency(expense.amount)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Score: {expense.cancelability_score ?? '—'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 text-center">
+                <Link to="/expenses">
+                  <Button variant="outline" size="sm">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Gerenciar Despesas
+                  </Button>
+                </Link>
               </div>
             </CardContent>
           </Card>
