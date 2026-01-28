@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RiskGauge } from '@/components/RiskGauge';
 import { RiskCard } from '@/components/RiskCard';
 import { IncomeDropSimulation, FirstMillionProjection } from '@/components/SimulationCards';
-import { LogOut, AlertTriangle, Shield, TrendingUp, Wallet, PiggyBank, Activity, Plus, Lock } from 'lucide-react';
+import { LogOut, AlertTriangle, Shield, TrendingUp, Wallet, PiggyBank, Activity, Plus, Lock, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 
@@ -73,6 +73,12 @@ const Dashboard = () => {
                 Despesas
               </Button>
             </Link>
+            <Link to="/profile">
+              <Button variant="outline" size="sm">
+                <Settings className="mr-2 h-4 w-4" />
+                Perfil
+              </Button>
+            </Link>
             <Button variant="ghost" size="sm" onClick={signOut}>
               <LogOut className="mr-2 h-4 w-4" />
               Sair
@@ -87,8 +93,14 @@ const Dashboard = () => {
           <Alert>
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Configure seu perfil</AlertTitle>
-            <AlertDescription>
-              Para uma análise precisa de risco, configure sua renda mínima, reserva de emergência e outras informações financeiras.
+            <AlertDescription className="flex items-center justify-between">
+              <span>Para uma análise precisa de risco, configure sua renda mínima, reserva de emergência e outras informações financeiras.</span>
+              <Link to="/profile">
+                <Button size="sm" variant="outline" className="ml-4">
+                  <Settings className="mr-2 h-4 w-4" />
+                  Configurar
+                </Button>
+              </Link>
             </AlertDescription>
           </Alert>
         )}
@@ -381,9 +393,12 @@ const Dashboard = () => {
               <p className="text-muted-foreground">
                 Configure seu perfil financeiro para análises mais precisas.
               </p>
-              <Button variant="outline" className="mt-2">
-                Configurar Perfil
-              </Button>
+              <Link to="/profile">
+                <Button variant="outline" className="mt-2">
+                  <Settings className="mr-2 h-4 w-4" />
+                  Configurar Perfil
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         )}
