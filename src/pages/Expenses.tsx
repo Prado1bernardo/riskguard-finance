@@ -77,8 +77,8 @@ const Expenses = () => {
   const { 
     expenses, 
     isLoading, 
-    addExpense, 
-    deleteExpense, 
+    addExpenseAsync,
+    deleteExpenseAsync,
     isAdding, 
     isDeleting 
   } = useExpenses();
@@ -94,7 +94,7 @@ const Expenses = () => {
     return formData;
   }, [formData]);
 
-  const { preview, isLoading: previewLoading } = useComputePreview(previewInput, 400);
+  const { preview, isLoading: previewLoading, error: previewError } = useComputePreview(previewInput, 400);
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -119,7 +119,7 @@ const Expenses = () => {
     }
 
     try {
-      addExpense({
+      await addExpenseAsync({
         name: formData.name.trim(),
         amount: formData.amount,
         intention: formData.intention,
@@ -138,14 +138,19 @@ const Expenses = () => {
       setShowAdvanced(false);
       toast.success('Despesa adicionada com sucesso');
     } catch (err) {
-      toast.error('Erro ao adicionar despesa');
+      const message = err instanceof Error ? err.message : 'Erro ao adicionar despesa';
+      toast.error(message);
     }
   };
 
-  const handleDelete = (id: string, name: string) => {
-    if (confirm(`Excluir "${name}"?`)) {
-      deleteExpense(id);
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Excluir "${name}"?`)) return;
+    try {
+      await deleteExpenseAsync(id);
       toast.success('Despesa excluída');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao excluir despesa';
+      toast.error(message);
     }
   };
 
@@ -486,7 +491,7 @@ const Expenses = () => {
                     </>
                   ) : (
                     <p className="text-center text-muted-foreground py-8">
-                      Erro ao calcular preview
+                      {previewError ? `Erro ao calcular preview: ${previewError}` : 'Erro ao calcular preview'}
                     </p>
                   )}
                 </CardContent>
