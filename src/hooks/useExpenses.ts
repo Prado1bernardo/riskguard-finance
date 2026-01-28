@@ -23,28 +23,54 @@ interface ComputeExpenseResponse {
 
 // Call the Edge Function to compute score (server-side only - anti-bypass)
 export const computeExpenseScore = async (expense: Partial<Expense>): Promise<ComputeExpenseResponse> => {
-  const { data, error } = await supabase.functions.invoke('compute-expense', {
-    body: {
-      name: expense.name || 'Unnamed',
-      amount: expense.amount || 0,
-      intention: expense.intention,
-      contract_months_remaining: expense.contract_months_remaining ?? 0,
-      notice_days: expense.notice_days ?? 0,
-      cancellation_fee_pct: expense.cancellation_fee_pct ?? 0,
-      has_legal_link: expense.has_legal_link ?? false,
-      essential_obligation: expense.essential_obligation ?? false,
-      substitutability: expense.substitutability ?? 5,
-      override_rigidity: expense.override_rigidity,
-      override_reason: expense.override_reason,
-    },
-  });
+  const body = {
+    name: expense.name || 'Unnamed',
+    amount: expense.amount || 0,
+    intention: expense.intention,
+    contract_months_remaining: expense.contract_months_remaining ?? 0,
+    notice_days: expense.notice_days ?? 0,
+    cancellation_fee_pct: expense.cancellation_fee_pct ?? 0,
+    has_legal_link: expense.has_legal_link ?? false,
+    essential_obligation: expense.essential_obligation ?? false,
+    substitutability: expense.substitutability ?? 5,
+    override_rigidity: expense.override_rigidity,
+    override_reason: expense.override_reason,
+  };
 
-  if (error) {
+  const invokeOnce = async () => {
+    return supabase.functions.invoke('compute-expense', { body });
+  };
+
+  // Retry once on transient fetch/cold-start issues; also refresh session once on 401.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await invokeOnce();
+
+    if (!error) return data as ComputeExpenseResponse;
+
+    const msg = (error as any)?.message ?? '';
+    const status = (error as any)?.status;
+    const isUnauthorized = status === 401 || status === 403 || /jwt|unauthor/i.test(msg);
+
+    if (isUnauthorized && attempt === 0) {
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        // ignore and fall through to return the original error
+      }
+      continue;
+    }
+
+    const isTransient = /failed to fetch|failed to send/i.test(msg);
+    if (isTransient && attempt === 0) {
+      await new Promise((r) => setTimeout(r, 500));
+      continue;
+    }
+
     console.error('Error computing expense:', error);
-    return { success: false, error: error.message };
+    return { success: false, error: msg || 'Erro ao calcular despesa' };
   }
 
-  return data as ComputeExpenseResponse;
+  return { success: false, error: 'Erro ao calcular despesa' };
 };
 
 export const useExpenses = () => {
@@ -158,9 +184,13 @@ export const useExpenses = () => {
     expenses,
     isLoading,
     error,
+    // Prefer async variants in UI so we can await + show real errors
     addExpense: addExpense.mutate,
+    addExpenseAsync: addExpense.mutateAsync,
     updateExpense: updateExpense.mutate,
+    updateExpenseAsync: updateExpense.mutateAsync,
     deleteExpense: deleteExpense.mutate,
+    deleteExpenseAsync: deleteExpense.mutateAsync,
     isAdding: addExpense.isPending,
     isUpdating: updateExpense.isPending,
     isDeleting: deleteExpense.isPending,
